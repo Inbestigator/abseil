@@ -1,6 +1,6 @@
 {
   "name": "abseil",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Quickly traverse Discord Components V2 trees.",
   "scripts": {
     "dist": "rm -fr dist && tsc",
