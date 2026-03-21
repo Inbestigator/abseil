@@ -11,7 +11,7 @@ import {
   ButtonStyle,
   ComponentType,
 } from "discord-api-types/v10";
-import abseil from "./index.ts";
+import abseil, { removeNode } from "./index.ts";
 
 const message = {
   components: [
@@ -187,4 +187,45 @@ test("insertBefore", () => {
     .sibling("TextDisplay")
     .insertBefore({ type: ComponentType.TextDisplay, content: "b" });
   expect(t.previous.sibling("TextDisplay")?.value).toHaveProperty("content", "b");
+});
+
+test("find", () => {
+  const t = abseil([
+    {
+      type: ComponentType.Container,
+      id: 1,
+      components: [
+        {
+          type: ComponentType.Section,
+          id: 2,
+          accessory: { type: ComponentType.Thumbnail, media: { url: "" } },
+          components: [],
+        },
+        {
+          type: ComponentType.Section,
+          id: 3,
+          accessory: { type: ComponentType.Button, custom_id: "btn", style: ButtonStyle.Primary },
+          components: [],
+        },
+      ],
+    },
+  ]).find("btn", "Button");
+  expect(t?.parent("Section").value).toHaveProperty("id", 3);
+});
+
+test("remove", () => {
+  const t = abseil([
+    {
+      type: ComponentType.ActionRow,
+      id: 1,
+      components: [
+        { type: ComponentType.Button, custom_id: "btn", style: ButtonStyle.Primary },
+        { type: ComponentType.Button, custom_id: "btn2", style: ButtonStyle.Secondary },
+      ],
+    },
+  ])
+    .initial("ActionRow")
+    .child("Button");
+  removeNode(t);
+  expect(t.value).toBeNull();
 });

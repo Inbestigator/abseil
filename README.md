@@ -1,8 +1,8 @@
 # Abseil
 
-Quickly traverse Discord [Components V2](https://docs.discord.com/developers/components/overview) trees.
+Quickly traverse Discord [Components V2](https://docs.discord.com/developers/components/overview) trees. Either enter at the root with `abseil([...]).initial(type)` or jump to a specific node with `abseil([...]).find(query, type)`.
 
-## Reference
+## Node Reference
 
 | function     | description                                                                                           |
 | ------------ | ----------------------------------------------------------------------------------------------------- |
@@ -11,6 +11,7 @@ Quickly traverse Discord [Components V2](https://docs.discord.com/developers/com
 | insertBefore | Insert a sibling before the current node                                                              |
 | last         | Jump to the last neighbouring node of a type in an array                                              |
 | next         | Jump to the next neighbouring node of a type in an array                                              |
+| parent       | Access the parent of a node                                                                           |
 | previous     | Return to the previous node                                                                           |
 | sibling      | Access the next node in an array                                                                      |
 | update       | Shallow merge with the current component in place                                                     |
@@ -31,11 +32,11 @@ const message = {
       Section(["## Trivia!"], Button({ custom_id: "suggest", style: "Secondary" })),
       TextDisplay("What is the meaning of life?"),
       ActionRow(
-        Button({ custom_id: "money", label: "💵" }),
-        Button({ custom_id: "42", label: "🤖" }),
+        Button({ custom_id: "guess-money", label: "💵" }),
+        Button({ custom_id: "guess-42", label: "🤖" }),
       ),
       Separator(),
-      Section(["## 🟩🟩🟥🟥🟥⬛⬛⬛⬛⬛"], Button({ custom_id: "stats", style: "Secondary" })),
+      Section(["## 🟩🟩🟥🟥🟥⬛⬛⬛⬛⬛"], Button({ custom_id: "stats-3-2", style: "Secondary" })),
     ),
   ],
 } as APIMessage;
@@ -44,26 +45,26 @@ const message = {
 </details>
 
 ```ts
-import abseil from "abseil";
+import abseil, { removeNode } from "abseil";
 import { editMessage } from "dressed";
 
-const section = abseil(message.components ?? [])
-  .initial("Container")
-  .child("Section");
+const line = abseil(message.components ?? []);
 
-let button = section.next("ActionRow")?.child("Button");
+let guessBtn = line.find(/guess-.+/, "Button");
 
-while (button) {
-  button.update({ disabled: true });
-  // The last item in an array does not have a sibling function
-  button = button.sibling?.("Button");
+while (guessBtn) {
+  guessBtn.update({ disabled: true });
+  guessBtn = guessBtn.next("Button");
 }
 
+const header = line.initial("Container").child("Section");
+
+header.insertBefore(TextDisplay(header.child("TextDisplay").value.content));
+removeNode(header);
+
 // Insert-if-not-exists the warning message
-if (section.last("TextDisplay")?.sibling) {
-  section.previous.update((prev) => ({
-    components: prev.components.concat(TextDisplay("-# This has expired!")),
-  }));
+if (!header.last("Section")?.sibling) {
+  header.previous.value.components.push(TextDisplay("-# This has expired!"));
 }
 
 editMessage("<CHANNEL_ID>", "<MESSAGE_ID>", { components: message.components });
