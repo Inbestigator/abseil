@@ -8,7 +8,7 @@ import {
   ComponentType,
 } from "discord-api-types/v10";
 
-type CT = typeof ComponentType & {
+type CT = Omit<typeof ComponentType, "SelectMenu"> & {
   "Button:URL": ComponentType.Button;
   "Button:SKU": ComponentType.Button;
 };
@@ -24,7 +24,7 @@ type Arrable<T> = T | T[];
 type Overwriter<T> = Partial<T> | ((prev: T) => Partial<T>);
 
 interface ChildrenMap {
-  ActionRow: IComponentType[APIComponentInMessageActionRow["type"]] | "Button:URL" | "Button:SKU";
+  ActionRow: IComponentType[APIComponentInMessageActionRow["type"]];
   Container: IComponentType[APIComponentInContainer["type"]];
   Section: "TextDisplay";
 }
@@ -57,12 +57,7 @@ export type Traverser<T extends keyof CT, H extends (keyof CT)[], ST extends key
   ? object
   : {
       /** Insert a sibling before the current node. */
-      insertBefore: (
-        component: Extract<
-          APIMessageComponent,
-          { type: (typeof ComponentType)[Exclude<ST, "Button:URL" | "Button:SKU">] }
-        >,
-      ) => Traverser<T, H, ST>;
+      insertBefore: <V extends Component<ST>>(component: V) => Traverser<T, H, ST>;
       /** Jump to the last neighbouring node of a type in an array. */
       last: <N extends ST>(type: Arrable<N>) => Traverser<N, [...H, T], ST> | undefined;
       /** Jump to the next neighbouring node of a type in an array. */
@@ -99,7 +94,7 @@ const selects = new Set([
   ComponentType.ChannelSelect,
 ]);
 
-function matchTypes(component: APIMessageComponent, expected: string | string[], doNotThrow?: boolean) {
+function typesMatch(component: APIMessageComponent, expected: string | string[], throwOnMismatch?: boolean) {
   const expectedTypes = new Set((Array.isArray(expected) ? expected : [expected]).filter(Boolean));
   if (!expectedTypes.size) {
     throw new Error("Selectors must specify expected type(s)");
@@ -108,9 +103,9 @@ function matchTypes(component: APIMessageComponent, expected: string | string[],
   if (actualType === "Button") {
     if ("url" in component) actualType += ":URL";
     else if ("sku_id" in component) actualType += ":SKU";
-  }
+  } else if (actualType === "SelectMenu") actualType = "StringSelect";
   if (!expectedTypes.has(actualType)) {
-    if (!doNotThrow) {
+    if (throwOnMismatch) {
       throw new TypeError(`Type mismatch: expected ${[...expectedTypes].join(" or ")}, got ${actualType}`);
     }
     return false;
@@ -160,7 +155,7 @@ export default function abseil<T extends APIMessageComponent>(components: T[]) {
     previous?: Traverser<keyof CT, (keyof CT)[]>,
     neighbours?: APIMessageComponent[],
   ): Traverser<IComponentType[C["type"]], []> {
-    matchTypes(component, expected);
+    typesMatch(component, expected, true);
     const traverser: any = {
       value: component,
       update(v: Overwriter<APIMessageComponent>) {
@@ -189,12 +184,12 @@ export default function abseil<T extends APIMessageComponent>(components: T[]) {
         traverser.last = (t: string) => {
           for (let i = neighbours.length - 1; i >= 0; --i) {
             const sibling = neighbours[i];
-            if (!matchTypes(sibling, t, true)) continue;
+            if (!typesMatch(sibling, t)) continue;
             return createTraverser(sibling, t, traverser, neighbours);
           }
         };
         traverser.next = (t: string) => {
-          const next = neighbours.slice(neighbours.indexOf(component) + 1).find((s) => matchTypes(s, t, true));
+          const next = neighbours.slice(neighbours.indexOf(component) + 1).find((s) => typesMatch(s, t));
           if (!next) return undefined;
           return createTraverser(next, t, traverser, neighbours);
         };
@@ -222,7 +217,7 @@ export default function abseil<T extends APIMessageComponent>(components: T[]) {
       type: Arrable<F>,
     ) {
       const component = find(query, components);
-      if (!component || !matchTypes(component, type, true)) return undefined;
+      if (!component || !typesMatch(component, type)) return undefined;
       const parent = findParent(component, components);
       return createTraverser(
         component,
@@ -245,7 +240,7 @@ export default function abseil<T extends APIMessageComponent>(components: T[]) {
  * Data on this node will be stripped, attempting to access most functions will throw.
  * @important This may cause issues when you try to navigate {@link abseil} instances you've previously created
  */
-export function removeNode<T extends keyof typeof ComponentType>(node: Traverser<T, any, any>) {
+export function removeNode<T extends keyof CT>(node: Traverser<T, any, any>) {
   const { components } = node.parent(["ActionRow", "Container", "Section"]).value;
   components?.splice(components.indexOf(node.value as never), 1);
   for (const key of Object.keys(node)) {
@@ -259,3 +254,8 @@ export function removeNode<T extends keyof typeof ComponentType>(node: Traverser
     ) as never;
   }
 }
+
+export const assert = <T extends keyof CT>(
+  component: APIMessageComponent,
+  type: Arrable<T>,
+): component is Component<T> => typesMatch(component, type);

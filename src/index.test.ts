@@ -11,7 +11,7 @@ import {
   ButtonStyle,
   ComponentType,
 } from "discord-api-types/v10";
-import abseil, { removeNode } from "./index.ts";
+import abseil, { assert, removeNode } from "./index.ts";
 
 const message = {
   components: [
@@ -228,4 +228,10 @@ test("remove", () => {
     .child("Button");
   removeNode(t);
   expect(t.value).toBeNull();
+});
+
+test("assert", () => {
+  const btn = { type: ComponentType.Button, custom_id: "btn", style: ButtonStyle.Primary } as const;
+  expect(assert(btn, "Button")).toBeTrue();
+  expect(assert(btn, "Button:URL")).toBeFalse();
 });
