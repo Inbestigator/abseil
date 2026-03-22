@@ -255,6 +255,7 @@ export function removeNode<T extends keyof CT>(node: Traverser<T, any, any>) {
   }
 }
 
+/** Assert that a component is of certain type(s). */
 export const assert = <T extends keyof CT>(
   component: APIMessageComponent,
   type: Arrable<T>,
