@@ -8,7 +8,7 @@ import {
   ComponentType,
 } from "discord-api-types/v10";
 
-type CT = Omit<typeof ComponentType, "SelectMenu"> & {
+type CT = Omit<typeof ComponentType, "SelectMenu" | "ContentInventoryEntry"> & {
   "Button:URL": ComponentType.Button;
   "Button:SKU": ComponentType.Button;
 };
@@ -29,9 +29,14 @@ interface ChildrenMap {
   Section: "TextDisplay";
 }
 
-type TraverserFn<C extends keyof CT, H extends (keyof CT)[], O extends string = ""> = <T extends C>(
+//            Current   Siblings
+type Depth = [keyof CT, keyof CT][];
+// History is not topographically linear, so it must store depths
+type History = Depth[];
+
+type TraverserFn<C extends keyof CT, H extends History, D extends Depth, O extends string = ""> = <T extends C>(
   type: Arrable<T>,
-) => Omit<Traverser<T, H, C>, O>;
+) => Omit<Traverser<[...D, [T, C]], H>, O>;
 
 type Component<T extends keyof CT> = Extract<
   APIMessageComponent,
@@ -46,35 +51,33 @@ type Component<T extends keyof CT> = Extract<
         : object)
 >;
 
-export type Traverser<T extends keyof CT, H extends (keyof CT)[], ST extends keyof CT = keyof CT> = {
+export type Traverser<D extends Depth, H extends History> = {
   /** Shallow merge with the current component in place. */
-  update: (value: Overwriter<Component<T>>) => Traverser<T, H, ST>;
+  update: (value: Overwriter<Component<Last<D>[0]>>) => Traverser<D, H>;
   /** The current component. */
-  value: Component<T>;
-  /** Access the parent of the current node. */
-  parent: TraverserFn<keyof CT, [...H, T]>;
-} & (T extends IComponentType[APISelectMenuComponent["type"]]
+  value: Component<Last<D>[0]>;
+} & (Last<D>[0] extends IComponentType[APISelectMenuComponent["type"]]
   ? object
   : {
       /** Insert a sibling before the current node. */
-      insertBefore: <V extends Component<ST>>(component: V) => Traverser<T, H, ST>;
+      insertBefore: <V extends Component<Last<D>[1]>>(component: V) => Traverser<D, H>;
       /** Jump to the last neighbouring node of a type in an array. */
-      last: <N extends ST>(type: Arrable<N>) => Traverser<N, [...H, T], ST> | undefined;
+      last: <N extends Last<D>[1]>(type: Arrable<N>) => Traverser<[...Pop<D>, [N, Last<D>[1]]], [...H, D]> | undefined;
       /** Jump to the next neighbouring node of a type in an array. */
-      next: <N extends ST>(type: Arrable<N>) => Traverser<N, [...H, T], ST> | undefined;
+      next: <N extends Last<D>[1]>(type: Arrable<N>) => Traverser<[...Pop<D>, [N, Last<D>[1]]], [...H, D]> | undefined;
       /** Access the next node in an array. */
-      sibling: TraverserFn<ST, [...H, T]>;
+      sibling: TraverserFn<Last<D>[1], [...H, D], Pop<D>>;
     }) &
-  (T extends keyof ChildrenMap
+  (Last<D>[0] extends keyof ChildrenMap
     ? {
         /** Access the first child of a node. */
-        child: TraverserFn<ChildrenMap[T], [...H, T]>;
+        child: TraverserFn<ChildrenMap[Last<D>[0]], [...H, D], D>;
       }
     : object) &
-  (T extends "Section"
+  (Last<D>[0] extends "Section"
     ? {
         /** Access the accessory of a [Section](https://docs.discord.com/developers/components/reference#section). */
-        accessory: TraverserFn<IComponentType[APISectionAccessoryComponent["type"]], [...H, T], "sibling">;
+        accessory: TraverserFn<IComponentType[APISectionAccessoryComponent["type"]], [...H, D], Pop<D>, "sibling">;
       }
     : object) &
   (H extends []
@@ -82,6 +85,17 @@ export type Traverser<T extends keyof CT, H extends (keyof CT)[], ST extends key
     : {
         /** Return to the previous node. */
         previous: Traverser<Last<H>, Pop<H>>;
+      }) &
+  (D extends [any]
+    ? object
+    : {
+        /** Access the parent of the current node. */
+        parent: <P extends Last<Pop<D>> extends never ? keyof ChildrenMap : Last<Pop<D>>[0]>(
+          type: Arrable<P>,
+        ) => Traverser<
+          Last<Pop<D>> extends never ? [...(P extends "Container" ? [] : [never]), [P, keyof CT]] : Pop<D>,
+          [...H, D]
+        >;
       });
 
 const withChildren = new Set([ComponentType.ActionRow, ComponentType.Section, ComponentType.Container]);
@@ -94,12 +108,16 @@ const selects = new Set([
   ComponentType.ChannelSelect,
 ]);
 
-function typesMatch(component: APIMessageComponent, expected: string | string[], throwOnMismatch?: boolean) {
+function typesMatch(
+  component: APIMessageComponent | { type: "Root" },
+  expected: string | string[],
+  throwOnMismatch?: boolean,
+) {
   const expectedTypes = new Set((Array.isArray(expected) ? expected : [expected]).filter(Boolean));
   if (!expectedTypes.size) {
     throw new Error("Selectors must specify expected type(s)");
   }
-  let actualType = ComponentType[component.type];
+  let actualType = component.type === "Root" ? "Root" : ComponentType[component.type];
   if (actualType === "Button") {
     if ("url" in component) actualType += ":URL";
     else if ("sku_id" in component) actualType += ":SKU";
@@ -134,7 +152,11 @@ function find(query: number | string | RegExp, components: APIMessageComponent[]
   }
 }
 
-function findParent(child: APIMessageComponent, components: APIMessageComponent[]): APIMessageComponent | undefined {
+function findParent(
+  child: APIMessageComponent,
+  components: APIMessageComponent[],
+): Extract<APIMessageComponent, { components: any }> | APIMessageComponent[] | undefined {
+  if (components.includes(child)) return components;
   for (const component of components) {
     if ("components" in component) {
       if ((component.components as APIMessageComponent[]).includes(child)) return component;
@@ -152,9 +174,9 @@ export default function abseil<T extends APIMessageComponent>(components: T[]) {
   function createTraverser<C extends APIMessageComponent>(
     component: C,
     expected: string | string[],
-    previous?: Traverser<keyof CT, (keyof CT)[]>,
+    previous?: Traverser<Depth, History>,
     neighbours?: APIMessageComponent[],
-  ): Traverser<IComponentType[C["type"]], []> {
+  ): Traverser<[IComponentType[C["type"]], keyof CT][], []> {
     typesMatch(component, expected, true);
     const traverser: any = {
       value: component,
@@ -164,13 +186,19 @@ export default function abseil<T extends APIMessageComponent>(components: T[]) {
       },
       parent(t: string) {
         const parentComponent = findParent(component, components);
-        if (!parentComponent) throw new Error("This node does not have a parent");
+        if (Array.isArray(parentComponent)) {
+          typesMatch({ type: "Root" }, t, true);
+          return { value: { components } };
+        }
+        if (!parentComponent) {
+          throw new Error("This node does not have a parent");
+        }
         const parentParent = findParent(parentComponent, components);
         return createTraverser(
           parentComponent,
           t,
           traverser,
-          parentParent && "components" in parentParent ? parentParent.components : [],
+          parentParent && "components" in parentParent ? parentParent.components : parentParent,
         );
       },
     };
@@ -224,11 +252,12 @@ export default function abseil<T extends APIMessageComponent>(components: T[]) {
         type,
         undefined,
         parent && "components" in parent ? parent.components : components,
-      ) as Omit<Traverser<F, []>, "previous">;
+      ) as Omit<Traverser<[never, [F, keyof CT]], []>, "previous">;
     },
     /** Entry point of the tree, visually this is the top-leftmost component. */
     initial: ((t) => createTraverser(components[0], t, undefined, components)) as TraverserFn<
       IComponentType[T["type"]],
+      [],
       [],
       "parent" | "previous"
     >,
@@ -240,8 +269,13 @@ export default function abseil<T extends APIMessageComponent>(components: T[]) {
  * Data on this node will be stripped, attempting to access most functions will throw.
  * @important This may cause issues when you try to navigate {@link abseil} instances you've previously created
  */
-export function removeNode<T extends keyof CT>(node: Traverser<T, any, any>) {
-  const { components } = node.parent(["ActionRow", "Container", "Section"]).value;
+export function removeNode<D extends Depth, H extends History>(node: Traverser<D, H>) {
+  const { components } = (node as unknown as Traverser<[[keyof ChildrenMap, any], any], H>).parent([
+    "ActionRow",
+    "Container",
+    "Root",
+    "Section",
+  ] as (keyof ChildrenMap)[]).value;
   components?.splice(components.indexOf(node.value as never), 1);
   for (const key of Object.keys(node)) {
     if (key === "previous" || key === "last") continue;
