@@ -29,7 +29,7 @@ interface ChildrenMap {
   Section: "TextDisplay";
 }
 
-//            Current   Siblings
+//            Current   Neighbours
 type Depth = [keyof CT, keyof CT][];
 // History is not topographically linear, so it must store depths
 type History = Depth[];
@@ -40,9 +40,7 @@ type TraverserFn<C extends keyof CT, H extends History, D extends Depth, O exten
 
 type Component<T extends keyof CT> = Extract<
   APIMessageComponent,
-  {
-    type: CT[T extends "Button:URL" | "Button:SKU" ? "Button" : T];
-  } & (T extends "Button"
+  { type: CT[T extends "Button:URL" | "Button:SKU" ? "Button" : T] } & (T extends "Button"
     ? { custom_id: string }
     : T extends "Button:URL"
       ? { url: string }
@@ -77,7 +75,12 @@ export type Traverser<D extends Depth, H extends History> = {
   (Last<D>[0] extends "Section"
     ? {
         /** Access the accessory of a [Section](https://docs.discord.com/developers/components/reference#section). */
-        accessory: TraverserFn<IComponentType[APISectionAccessoryComponent["type"]], [...H, D], Pop<D>, "sibling">;
+        accessory: TraverserFn<
+          IComponentType[APISectionAccessoryComponent["type"]],
+          [...H, D],
+          D,
+          "insertBefore" | "last" | "next" | "sibling"
+        >;
       }
     : object) &
   (H extends []
@@ -99,7 +102,6 @@ export type Traverser<D extends Depth, H extends History> = {
       });
 
 const withChildren = new Set([ComponentType.ActionRow, ComponentType.Section, ComponentType.Container]);
-
 const selects = new Set([
   ComponentType.StringSelect,
   ComponentType.UserSelect,
